@@ -1,3 +1,4 @@
+![CI](https://github.com/Sanskar121543/lineageiq/actions/workflows/ci.yml/badge.svg)
 # LineageIQ
 
 **Column-level data lineage & schema impact analysis engine.**
