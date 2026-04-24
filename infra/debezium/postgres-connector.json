@@ -1,0 +1,23 @@
+{
+  "name": "lineageiq-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "lineageiq",
+    "database.password": "lineageiq_dev",
+    "database.dbname": "lineageiq",
+    "database.server.name": "lineageiq_pg",
+    "table.include.list": "lineageiq.schema_changes",
+    "plugin.name": "pgoutput",
+    "publication.autocreate.mode": "filtered",
+    "slot.name": "lineageiq_debezium",
+    "topic.prefix": "lineageiq",
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter.schemas.enable": "false"
+  }
+}

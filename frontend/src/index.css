@@ -1,0 +1,136 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;700;800&display=swap');
+
+/* ─── Design Tokens ────────────────────────────────────────────────────────── */
+:root {
+  --bg-base:        #0a0b0e;
+  --bg-surface:     #111318;
+  --bg-elevated:    #181c24;
+  --bg-hover:       #1e2330;
+
+  --border:         #252a36;
+  --border-bright:  #353d52;
+
+  --text-primary:   #e8eaf0;
+  --text-secondary: #7c8499;
+  --text-muted:     #4a5068;
+
+  --accent:         #4fffb0;   /* terminal green */
+  --accent-dim:     #1a3d2e;
+  --accent-glow:    rgba(79, 255, 176, 0.12);
+
+  --warn:           #f7b731;
+  --warn-dim:       #3a2e0f;
+
+  --danger:         #ff4d6d;
+  --danger-dim:     #3a0f18;
+
+  --info:           #4da6ff;
+  --info-dim:       #0f2240;
+
+  --p0-color:       #ff4d6d;
+  --p1-color:       #f7b731;
+  --p2-color:       #4da6ff;
+
+  --node-dataset:   #4fffb0;
+  --node-column:    #4da6ff;
+  --node-transform: #b87fff;
+  --node-pipeline:  #f7b731;
+  --node-dashboard: #ff6b9d;
+  --node-mlfeature: #ff9f4a;
+
+  --font-mono:   'IBM Plex Mono', monospace;
+  --font-ui:     'Syne', sans-serif;
+
+  --radius-sm:  4px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 16px rgba(0,0,0,0.5);
+  --shadow-lg:  0 8px 32px rgba(0,0,0,0.6);
+  --glow-accent: 0 0 20px rgba(79, 255, 176, 0.15);
+}
+
+/* ─── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────────────  */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ─── Typography ─────────────────────────────────────────────────────────────  */
+h1, h2, h3, h4 { font-family: var(--font-ui); font-weight: 700; letter-spacing: -0.02em; }
+code, pre, .mono { font-family: var(--font-mono); }
+
+/* ─── Utility classes ────────────────────────────────────────────────────────  */
+.text-accent   { color: var(--accent); }
+.text-secondary { color: var(--text-secondary); }
+.text-muted    { color: var(--text-muted); }
+.text-warn     { color: var(--warn); }
+.text-danger   { color: var(--danger); }
+.mono          { font-family: var(--font-mono); }
+
+.surface {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.elevated {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-md);
+}
+
+/* ─── React Flow overrides ───────────────────────────────────────────────────  */
+.react-flow__background { background: var(--bg-base) !important; }
+.react-flow__controls {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  box-shadow: var(--shadow-md) !important;
+}
+.react-flow__controls-button {
+  background: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  fill: var(--text-secondary) !important;
+}
+.react-flow__controls-button:hover {
+  background: var(--bg-hover) !important;
+  fill: var(--accent) !important;
+}
+.react-flow__minimap {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-md) !important;
+}
+.react-flow__edge-path { stroke: var(--border-bright); }
+.react-flow__edge.selected .react-flow__edge-path { stroke: var(--accent); }
+
+/* ─── Animations ─────────────────────────────────────────────────────────────  */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 255, 176, 0); }
+  50%       { box-shadow: 0 0 0 4px rgba(79, 255, 176, 0.15); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.fade-in { animation: fadeIn 0.2s ease forwards; }
+.spin { animation: spin 0.8s linear infinite; }

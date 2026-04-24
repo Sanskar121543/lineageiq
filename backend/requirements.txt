@@ -1,0 +1,49 @@
+# API
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+httpx==0.26.0
+
+# Config + validation
+pydantic==2.6.1
+pydantic-settings==2.2.1
+
+# Neo4j
+neo4j==5.17.0
+
+# SQL parsing
+sqlglot==21.2.1
+
+# LLM
+langchain==0.1.9
+langchain-openai==0.0.8
+openai==1.12.0
+tiktoken==0.6.0
+
+# Task queue
+celery==5.3.6
+redis==5.0.2
+flower==2.0.1
+
+# Kafka + Schema Registry
+confluent-kafka==2.3.0
+fastavro==1.9.3
+jsonschema==4.21.1
+
+# Postgres
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.27
+
+# Observability
+structlog==24.1.0
+prometheus-fastapi-instrumentator==6.1.0
+
+# Testing
+pytest==8.0.2
+pytest-asyncio==0.23.5
+pytest-cov==4.1.0
+respx==0.20.2
+factory-boy==3.3.0
+
+# Linting / type checking
+ruff==0.2.2
+mypy==1.8.0

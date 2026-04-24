@@ -1,0 +1,92 @@
+[
+  {
+    "question": "Which ML features depend on the orders table?",
+    "expected_result_contains": ["customer_ltv_feature"],
+    "expected_min_results": 1,
+    "notes": "Downstream MLFeature from Dataset"
+  },
+  {
+    "question": "Show all dbt models in the jaffle_shop project",
+    "expected_result_contains": ["orders", "revenue_fact"],
+    "expected_min_results": 2,
+    "notes": "Filter by source_type and project"
+  },
+  {
+    "question": "Which datasets does the session_etl transform write to?",
+    "expected_result_contains": ["sessions"],
+    "expected_min_results": 1,
+    "notes": "WRITES_TO traversal from transform name"
+  },
+  {
+    "question": "List all P0 dashboards",
+    "expected_result_contains": ["revenue_dashboard", "finance_executive_dashboard"],
+    "expected_min_results": 2,
+    "notes": "Filter Dashboard by sla_tier property"
+  },
+  {
+    "question": "What sources does the revenue_fact table depend on?",
+    "expected_result_contains": ["orders"],
+    "expected_min_results": 1,
+    "notes": "Upstream traversal from dataset"
+  },
+  {
+    "question": "Which transforms use LLM-inferred lineage?",
+    "expected_result_contains": [],
+    "expected_min_results": 0,
+    "notes": "Filter by llm_inferred=true property; may be empty on fresh seed"
+  },
+  {
+    "question": "What columns does public.orders expose?",
+    "expected_result_contains": ["customer_id", "amount"],
+    "expected_min_results": 3,
+    "notes": "Column enumeration via PART_OF"
+  },
+  {
+    "question": "Show all Kafka topics in the lineage graph",
+    "expected_result_contains": ["raw-events"],
+    "expected_min_results": 1,
+    "notes": "Filter Dataset by source_type=kafka"
+  },
+  {
+    "question": "Which pipelines are tracked in the spark_streaming project?",
+    "expected_result_contains": ["spark_streaming"],
+    "expected_min_results": 1,
+    "notes": "Pipeline node lookup"
+  },
+  {
+    "question": "Find all columns that are derived from customer_id",
+    "expected_result_contains": [],
+    "expected_min_results": 0,
+    "notes": "Downstream DERIVES_FROM traversal; seeded data may or may not have these"
+  },
+  {
+    "question": "Which datasets have no owner?",
+    "expected_result_contains": [],
+    "expected_min_results": 0,
+    "notes": "Filter on null property"
+  },
+  {
+    "question": "Count how many transforms are in each project",
+    "expected_result_contains": ["jaffle_shop", "platform"],
+    "expected_min_results": 2,
+    "notes": "Aggregation with GROUP BY equivalent"
+  },
+  {
+    "question": "Show me the full lineage path from raw.raw_orders to revenue_fact",
+    "expected_result_contains": [],
+    "expected_min_results": 0,
+    "notes": "Variable-length path query"
+  },
+  {
+    "question": "Which transforms read from more than one source dataset?",
+    "expected_result_contains": [],
+    "expected_min_results": 0,
+    "notes": "Aggregation filter on edge count"
+  },
+  {
+    "question": "List all transforms that are part of the jaffle_shop pipeline",
+    "expected_result_contains": ["orders", "revenue_fact"],
+    "expected_min_results": 2,
+    "notes": "PART_OF traversal to Pipeline"
+  }
+]
