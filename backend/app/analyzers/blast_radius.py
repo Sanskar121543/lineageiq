@@ -2,7 +2,7 @@
 Blast Radius Analyzer.
 
 Given a proposed schema change (rename/drop column, type change, rename table),
-performs a bidirectional BFS traversal in Neo4j to find all affected assets,
+performs a bidirectional traversal in Neo4j to find all affected assets,
 then scores each asset by a criticality formula weighted by:
   - SLA tier (P0 = 1.0, P1 = 0.6, P2 = 0.2)
   - Downstream fan-out (number of dependents)
@@ -10,14 +10,18 @@ then scores each asset by a criticality formula weighted by:
 
 The result is a ranked BlastRadiusReport with suggested migration actions.
 
-Design: uses depth-limited Cypher BFS with APOC shortestPath for path tracing.
-All (dataset, column, change_type) tuples are cached in Redis for 15 minutes.
+Design:
+- depth-limited Cypher traversal in Neo4j
+- APOC subgraph traversal for downstream impact
+- upstream provenance tracing for the changed asset
+- Redis cache for 15 minutes keyed by (dataset, column, change_type)
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import time
 from typing import Any
 
@@ -45,7 +49,7 @@ _CADENCE_WEIGHTS: dict[str, float] = {
     "daily": 0.5,
     "weekly": 0.2,
 }
-_MAX_BFS_DEPTH = 8  # prevents runaway queries on deeply nested graphs
+_MAX_BFS_DEPTH = 8  # prevents runaway traversals on deeply nested graphs
 
 
 class BlastRadiusAnalyzer:
@@ -71,22 +75,19 @@ class BlastRadiusAnalyzer:
         cache_key = self._cache_key(change)
         redis = await self._get_redis()
 
-        # Cache hit
         cached = await redis.get(cache_key)
         if cached:
             logger.info("blast_radius_cache_hit", cache_key=cache_key)
+            if isinstance(cached, bytes):
+                cached = cached.decode("utf-8")
             return BlastRadiusReport.model_validate_json(cached)
 
         t0 = time.perf_counter()
 
-        # Run downstream BFS
         downstream_assets = await self._downstream_traversal(change)
-
-        # Run upstream provenance trace
         upstream_chain = await self._upstream_provenance(change)
 
-        # Score each affected asset
-        scored = [self._score_asset(a) for a in downstream_assets]
+        scored = [self._score_asset(asset) for asset in downstream_assets]
         scored.sort(key=lambda a: a.criticality_score, reverse=True)
 
         duration_ms = (time.perf_counter() - t0) * 1000
@@ -100,7 +101,6 @@ class BlastRadiusAnalyzer:
             summary=self._generate_summary(change, scored),
         )
 
-        # Cache result
         await redis.set(
             cache_key,
             report.model_dump_json(),
@@ -122,27 +122,25 @@ class BlastRadiusAnalyzer:
 
     async def _downstream_traversal(self, change: SchemaChange) -> list[AffectedAsset]:
         """
-        BFS from the changed column/dataset, following DERIVES_FROM and
-        WRITES_TO/READS_FROM relationships downstream.
+        Traverse downstream from the changed column/dataset to find impacted assets.
         """
         if change.column:
-            # Column-level: start from the specific Column node
             query = """
             MATCH (start:Column {dataset: $dataset, name: $column})
             CALL apoc.path.subgraphNodes(start, {
-                relationshipFilter: "DERIVES_FROM>|<PART_OF|WRITES_TO>|READS_FROM>|PRODUCES>",
+                relationshipFilter: "DERIVES_FROM>|PART_OF>|WRITES_TO>|READS_FROM>|PRODUCES>",
                 minLevel: 1,
                 maxLevel: $max_depth
             }) YIELD node
             WITH node, labels(node)[0] AS node_type
-            WHERE node_type IN ['Dataset', 'Column', 'Dashboard', 'MLFeature', 'Transform']
-            OPTIONAL MATCH (node)<-[:DERIVES_FROM|READS_FROM|PRODUCES]-(dependent)
-            WITH node, node_type, count(distinct dependent) AS fan_out
+            WHERE node_type IN ['Dataset', 'Column', 'Dashboard', 'MLFeature', 'Transform', 'Pipeline']
+            OPTIONAL MATCH (node)<-[:DERIVES_FROM|READS_FROM|PRODUCES|WRITES_TO]-(dependent)
+            WITH node, node_type, count(DISTINCT dependent) AS fan_out
             RETURN
-                elementId(node)       AS node_id,
+                elementId(node) AS node_id,
                 node_type,
-                coalesce(node.name, node.dataset) AS name,
-                coalesce(node.sla_tier, 'P2')     AS sla_tier,
+                coalesce(node.name, node.dataset, '') AS name,
+                coalesce(node.sla_tier, 'P2') AS sla_tier,
                 fan_out,
                 coalesce(node.freshness_cadence, 'daily') AS freshness_cadence
             ORDER BY fan_out DESC
@@ -154,34 +152,35 @@ class BlastRadiusAnalyzer:
                 "max_depth": _MAX_BFS_DEPTH,
             }
         else:
-            # Table-level: start from the Dataset node
             query = """
             MATCH (start:Dataset {name: $dataset})
             CALL apoc.path.subgraphNodes(start, {
-                relationshipFilter: "WRITES_TO>|READS_FROM>|PRODUCES>",
+                relationshipFilter: "WRITES_TO>|READS_FROM>|PRODUCES>|DERIVES_FROM>|PART_OF>",
                 minLevel: 1,
                 maxLevel: $max_depth
             }) YIELD node
             WITH node, labels(node)[0] AS node_type
-            WHERE node_type IN ['Dataset', 'Dashboard', 'MLFeature', 'Transform']
-            OPTIONAL MATCH (node)<-[:WRITES_TO|READS_FROM|PRODUCES]-(dependent)
-            WITH node, node_type, count(distinct dependent) AS fan_out
+            WHERE node_type IN ['Dataset', 'Dashboard', 'MLFeature', 'Transform', 'Pipeline']
+            OPTIONAL MATCH (node)<-[:WRITES_TO|READS_FROM|PRODUCES|DERIVES_FROM|PART_OF]-(dependent)
+            WITH node, node_type, count(DISTINCT dependent) AS fan_out
             RETURN
-                elementId(node)       AS node_id,
+                elementId(node) AS node_id,
                 node_type,
-                coalesce(node.name, '') AS name,
+                coalesce(node.name, node.dataset, '') AS name,
                 coalesce(node.sla_tier, 'P2') AS sla_tier,
                 fan_out,
                 coalesce(node.freshness_cadence, 'daily') AS freshness_cadence
+            ORDER BY fan_out DESC
             LIMIT 500
             """
             params = {"dataset": change.dataset, "max_depth": _MAX_BFS_DEPTH}
 
         records = await self._neo4j.run(query, params)
 
-        assets = []
+        assets: list[AffectedAsset] = []
         for r in records:
-            node_type_str = r.get("node_type", "Dataset")
+            node_type_str = str(r.get("node_type", "Dataset"))
+
             try:
                 node_type = NodeType(node_type_str)
             except ValueError:
@@ -189,48 +188,68 @@ class BlastRadiusAnalyzer:
 
             action = self._suggested_action(node_type, change)
 
-            assets.append(AffectedAsset(
-                node_id=str(r.get("node_id", "")),
-                node_type=node_type,
-                name=r.get("name", ""),
-                sla_tier=SLATier(r.get("sla_tier", "P2")),
-                downstream_fan_out=r.get("fan_out", 0),
-                freshness_cadence=r.get("freshness_cadence", "daily"),
-                suggested_action=action,
-            ))
+            assets.append(
+                AffectedAsset(
+                    node_id=str(r.get("node_id", "")),
+                    node_type=node_type,
+                    name=str(r.get("name", "")),
+                    sla_tier=SLATier(str(r.get("sla_tier", "P2"))),
+                    downstream_fan_out=int(r.get("fan_out", 0) or 0),
+                    freshness_cadence=str(r.get("freshness_cadence", "daily")),
+                    criticality_score=0.0,
+                    suggested_action=action,
+                )
+            )
 
         return assets
 
     async def _upstream_provenance(self, change: SchemaChange) -> list[str]:
         """
-        Trace upstream provenance chain for the changed entity.
-        Returns a list of dataset names from raw source to the changed dataset.
+        Trace the upstream provenance chain for the changed entity.
+        Returns a list of asset names from raw source to the changed asset.
         """
-        query = """
-        MATCH path = (leaf)-[:READS_FROM|DERIVES_FROM*1..{depth}]->(start)
-        WHERE (start:Dataset {{name: $dataset}} OR start:Column {{dataset: $dataset}})
-          AND NOT ()-[:READS_FROM|DERIVES_FROM]->(leaf)
+        if change.column:
+            start_clause = "(start:Column AND start.dataset = $dataset AND start.name = $column)"
+            params: dict[str, Any] = {
+                "dataset": change.dataset,
+                "column": change.column,
+                "depth": _MAX_BFS_DEPTH,
+            }
+        else:
+            start_clause = "(start:Dataset AND start.name = $dataset)"
+            params = {
+                "dataset": change.dataset,
+                "depth": _MAX_BFS_DEPTH,
+            }
+
+        query = f"""
+        MATCH path = (leaf)-[:READS_FROM|DERIVES_FROM*1..{_MAX_BFS_DEPTH}]->(start)
+        WHERE {start_clause}
+          AND NOT (leaf)<-[:READS_FROM|DERIVES_FROM]-()
         RETURN [n IN nodes(path) | coalesce(n.name, n.dataset)] AS chain
         ORDER BY length(path) DESC
         LIMIT 1
-        """.format(depth=_MAX_BFS_DEPTH)
+        """
 
-        records = await self._neo4j.run(query, {"dataset": change.dataset})
+        records = await self._neo4j.run(query, params)
         if records:
-            return records[0].get("chain", [])
+            chain = records[0].get("chain", [])
+            return list(chain) if chain else []
+
         return []
 
     # ─── Scoring ──────────────────────────────────────────────────────────────
 
     def _score_asset(self, asset: AffectedAsset) -> AffectedAsset:
         """
-        Criticality score = SLA weight × cadence weight × log(fan_out + 1) normalized.
+        Criticality score = weighted combination of SLA, cadence, and fan-out.
         Score ∈ [0, 1].
         """
         sla_w = _SLA_WEIGHTS.get(asset.sla_tier.value, 0.2)
         cadence_w = _CADENCE_WEIGHTS.get(asset.freshness_cadence, 0.5)
 
-        import math
+        # Normalized logarithmic fan-out scaling:
+        # log(1) -> 0, log(501) -> 1
         fan_out_factor = math.log(asset.downstream_fan_out + 1) / math.log(501)
 
         score = (sla_w * 0.5) + (cadence_w * 0.3) + (fan_out_factor * 0.2)
@@ -253,6 +272,7 @@ class BlastRadiusAnalyzer:
             (NodeType.TRANSFORM, ChangeType.RENAME_COLUMN): "Update SQL / PySpark transform",
             (NodeType.TRANSFORM, ChangeType.DROP_COLUMN): "Remove column from transform output",
         }
+
         return actions.get(
             (node_type, change.change_type),
             f"Review usage of {change.dataset}.{change.column or '*'}",
@@ -270,9 +290,9 @@ class BlastRadiusAnalyzer:
 
         col_ref = f".{change.column}" if change.column else ""
         parts = [
-            f"Changing {change.dataset}{col_ref} ({change.change_type.value}) "
-            f"affects {len(assets)} downstream assets."
+            f"Changing {change.dataset}{col_ref} ({change.change_type.value}) affects {len(assets)} downstream assets."
         ]
+
         if p0:
             parts.append(f"{p0} P0 asset{'s' if p0 > 1 else ''}.")
         if p1:
@@ -290,10 +310,13 @@ class BlastRadiusAnalyzer:
 
     @staticmethod
     def _cache_key(change: SchemaChange) -> str:
-        raw = json.dumps({
-            "dataset": change.dataset,
-            "column": change.column,
-            "change_type": change.change_type.value,
-        }, sort_keys=True)
-        digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
+        raw = json.dumps(
+            {
+                "dataset": change.dataset,
+                "column": change.column,
+                "change_type": change.change_type.value,
+            },
+            sort_keys=True,
+        )
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
         return f"blast_radius:{digest}"
